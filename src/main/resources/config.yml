@@ -1,0 +1,15 @@
+HeartbeatInfoConfig:
+  # Change as needed
+  ApiPort: 8081
+  
+  # Danger zone
+  endpoints:
+    heartbeat:
+      - alive: true
+      
+    info:
+      - online: "%online%"
+      - capacity: "%capacity%"
+      - status: "online"
+      - TPS: "%tps,.2f%"
+      - MOTD: "%motd%"
