@@ -23,24 +23,15 @@ import java.util.regex.Pattern;
 /**
  * HeartbeatInfoPlugin
  *
- * Crea un servidor HTTP embebido que responde dinámicamente según config.yml:
- *  /heartbeat -> JSON con los campos definidos en config en endpoints.heartbeat
- *  /info      -> JSON con los campos definidos en config en endpoints.info
- *
- * El plugin genera automáticamente la carpeta de datos y configura config.yml por defecto
- * si no existe, usando saveDefaultConfig().
+ * HTTP server embebido responde JSON y añade cabecera CORS para permitir peticiones desde cualquier origen.
  */
 public class HeartbeatInfoPlugin extends JavaPlugin {
     private HttpServer httpServer;
-    // Patrón para detectar variables %var% o %var,format%
     private static final Pattern VAR_PATTERN = Pattern.compile("%([^,%]+)(?:,([^%]+))?%");
 
     @Override
     public void onEnable() {
-        // Asegurar carpeta de datos y config por defecto
-        if (!getDataFolder().exists()) {
-            getDataFolder().mkdirs();
-        }
+        if (!getDataFolder().exists()) getDataFolder().mkdirs();
         saveDefaultConfig();
 
         FileConfiguration config = getConfig();
@@ -52,15 +43,11 @@ public class HeartbeatInfoPlugin extends JavaPlugin {
 
         int port = root.getInt("ApiPort", 8081);
         ConfigurationSection endpoints = root.getConfigurationSection("endpoints");
-        if (endpoints == null) {
-            getLogger().warning("[HeartbeatInfo] No se encontró sección endpoints en config.yml");
-        }
 
         try {
             httpServer = HttpServer.create(new InetSocketAddress(port), 0);
             httpServer.setExecutor(Executors.newCachedThreadPool());
 
-            // Registrar handlers dinámicamente
             if (endpoints != null) {
                 for (String name : endpoints.getKeys(false)) {
                     List<?> list = endpoints.getList(name);
@@ -86,9 +73,6 @@ public class HeartbeatInfoPlugin extends JavaPlugin {
         }
     }
 
-    /**
-     * Handler dinámico que construye JSON según configuración.
-     */
     private static class DynamicHandler implements HttpHandler {
         private final List<?> configEntries;
 
@@ -98,12 +82,22 @@ public class HeartbeatInfoPlugin extends JavaPlugin {
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            // Permitir CORS desde cualquier origen
+            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+            exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, OPTIONS");
+            exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+
+            // Manejar preflight CORS
+            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
             }
 
-            // Valores base a reemplazar
             int online = Bukkit.getOnlinePlayers().size();
             int capacity = Bukkit.getMaxPlayers();
             double tps = getServerTPS();
@@ -114,7 +108,6 @@ public class HeartbeatInfoPlugin extends JavaPlugin {
                 StringBuilder sb = new StringBuilder();
                 sb.append('{');
                 boolean first = true;
-                // Cada elemento de la lista es un Map con una sola entrada
                 for (Object item : configEntries) {
                     if (!(item instanceof Map)) continue;
                     Map<?,?> map = (Map<?,?>) item;
@@ -164,9 +157,7 @@ public class HeartbeatInfoPlugin extends JavaPlugin {
                 case "status": return '"' + status + '"';
                 case "tps": {
                     double v = tps;
-                    if (fmt != null) {
-                        return String.format(Locale.US, "%" + fmt, v);
-                    }
+                    if (fmt != null) return String.format(Locale.US, "%" + fmt, v);
                     return String.format(Locale.US, "%.2f", v);
                 }
                 case "motd": return '"' + motd + '"';
